@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mold Shot & PM Tracking Dashboard</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- html2pdf for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <!-- SweetAlert2 for beautiful popups -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Kanit', 'sans-serif'] },
+                    colors: {
+                        primary: '#1e3a8a',
+                        secondary: '#3b82f6',
+                        safe: '#16a34a',
+                        warning: '#f59e0b',
+                        critical: '#ea580c',
+                        danger: '#dc2626',
+                        panel: '#ffffff'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: transparent; /* Transparent to show the fixed background */
+            color: #334155;
+            padding-bottom: 40px; /* Space for the footer */
+        }
+        
+        /* Fixed Background with Blur Overlay */
+        .bg-fixed-container {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: -1;
+        }
+        .bg-fixed-container img {
+            width: 100%; height: 100%; object-fit: cover;
+            opacity: 0.25; /* ปรับให้จางลงสวยงาม */
+        }
+        .bg-fixed-container .overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(to bottom, rgba(241, 245, 249, 0.85), rgba(226, 232, 240, 0.95));
+            backdrop-filter: blur(3px);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Donut Chart SVG */
+        .circular-chart { display: block; max-width: 100%; max-height: 100%; transform: rotate(-90deg); }
+        .circle-bg { fill: none; stroke: #e2e8f0; stroke-width: 3.5; }
+        .circle {
+            fill: none; stroke-width: 3.5; stroke-linecap: round;
+            transition: stroke-dasharray 1s ease-out, stroke 0.5s ease;
+        }
+
+        /* Print Specific Styles & Fix Thai Font Issue */
+        @media print {
+            body { background-color: white; padding-bottom: 0; }
+            .no-print { display: none !important; }
+            .print-break { page-break-before: always; }
+            .shadow-md, .shadow-sm, .shadow-lg, .shadow-inner { box-shadow: none !important; border: 1px solid #cbd5e1 !important; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .bg-fixed-container { display: none !important; }
+            
+            /* Allow full table rendering in PDF */
+            .overflow-x-auto { overflow: visible !important; }
+            #main-content { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+        }
+
+        /* Mode for html2pdf rendering to fix Thai Vowels (สระลอย) */
+        .pdf-export-mode * {
+            font-family: 'Tahoma', 'Sarabun', sans-serif !important;
+        }
+        .pdf-export-mode .overflow-x-auto {
+            overflow: visible !important;
+        }
+        .pdf-export-mode .bg-fixed-container { display: none !important; }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #ffffff; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 0.5s;
+        }
+        
+        .section-header { background: #1e3a8a; } 
+        
+        /* Clickable Cell Styling */
+        .editable-cell { cursor: pointer; transition: all 0.2s; position: relative; }
+        .editable-cell:hover {
+            background-color: #e0f2fe !important; 
+            box-shadow: inset 0 0 0 1.5px #0284c7; border-radius: 2px;
+        }
+        .editable-cell::after {
+            content: "\f040"; font-family: "Font Awesome 6 Free"; font-weight: 900;
+            position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+            font-size: 0.65rem; color: #94a3b8; opacity: 0; transition: opacity 0.2s;
+        }
+        .editable-cell:hover::after { opacity: 1; }
+        
+        /* Smooth Collapse */
+        .collapsible-content { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.3s ease-out; }
+        .collapsible-content.collapsed { grid-template-rows: 0fr; }
+        .collapsible-content > div { overflow: hidden; }
+
+        /* Footer Marquee Animation */
+        @keyframes marquee {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
+        .animate-marquee {
+            display: inline-block;
+            white-space: nowrap;
+            animation: marquee 25s linear infinite;
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden text-sm relative">
+
+    <!-- Fixed Background Image -->
+    <div class="bg-fixed-container no-print">
+        <img src="https://i.postimg.cc/wBxw6WrR/Gemini-Generated-Image-liebdgliebdglieb.jpg" alt="Background">
+        <div class="overlay"></div>
+    </div>
+
+    <!-- Scrolling Footer -->
+    <footer class="fixed bottom-0 w-full bg-slate-900 text-slate-300 text-xs py-1.5 z-40 border-t border-slate-700 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] no-print">
+        <div class="overflow-hidden whitespace-nowrap w-full">
+            <div class="animate-marquee font-medium tracking-wider">
+                <i class="fa-solid fa-gears text-blue-400 mr-2"></i> พัฒนาโดย แผนก PE (Utility) | Able Medical Company Limited <i class="fa-solid fa-gears text-blue-400 ml-2"></i>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="text-5xl text-primary mb-4"><i class="fa-solid fa-gear fa-spin"></i></div>
+        <h2 class="text-xl font-bold text-gray-800 mb-2">กำลังโหลดข้อมูลระบบ PM แม่พิมพ์...</h2>
+        <div class="w-64 bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+            <div id="loading-bar" class="bg-primary h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <p id="loading-text" class="text-gray-500 font-medium text-xs">0%</p>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="bg-slate-900 text-slate-300 text-[11px] px-4 py-1 flex justify-between items-center fixed top-0 w-full z-40 shadow no-print">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-circle text-safe text-[8px] animate-pulse"></i> 
+            <span id="system-status" class="font-medium tracking-wide">SYSTEM ONLINE</span>
+        </div>
+        <div id="current-datetime" class="font-mono font-medium tracking-wider text-slate-100"></div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="main-content" class="container mx-auto px-2 sm:px-4 py-10 mt-2 max-w-[1300px]" style="display: none;">
+        
+        <!-- Header Section & Global Controls -->
+        <header class="bg-white/90 backdrop-blur rounded-t-lg shadow-sm p-4 mb-4 flex flex-col xl:flex-row justify-between items-center xl:items-start border-t-[5px] border-primary gap-4">
+            
+            <!-- Logos & Title -->
+            <div class="flex items-center gap-4 w-full xl:w-auto shrink-0">
+                <img src="https://i.postimg.cc/rwBR7zL1/message-Image-1787986866051.jpg" alt="Company Logo" class="h-12 object-contain rounded border border-slate-200 p-0.5 bg-white">
+                <div>
+                    <h1 class="text-lg md:text-xl font-bold text-slate-800 tracking-tight leading-tight uppercase">ใบบันทึกการใช้งานและติดตามรอบ PM แม่พิมพ์</h1>
+                    <p class="text-primary text-xs font-semibold tracking-wide">(Mold Shot & PM Tracking Sheet)</p>
+                </div>
+            </div>
+
+            <!-- Global Controls (Action Buttons & Filters) -->
+            <div class="flex flex-col gap-2 w-full xl:w-auto no-print items-end justify-center h-full">
+                
+                <!-- Action Buttons: PDF & Trend -->
+                <div class="flex flex-wrap items-center gap-2 w-full justify-end">
+                    <button onclick="openAddMoldModal()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded transition-all flex items-center gap-2 text-xs font-semibold border border-green-800 shadow-sm">
+                        <i class="fa-solid fa-folder-plus"></i> <span class="hidden sm:inline">เพิ่มข้อมูลแม่พิมพ์</span><span class="sm:hidden">เพิ่ม</span>
+                    </button>
+
+                    <button onclick="openTrendModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition-all flex items-center gap-2 text-xs font-semibold border border-blue-800 shadow-sm">
+                        <i class="fa-solid fa-chart-line"></i> <span class="hidden sm:inline">กราฟแนวโน้ม (Trend)</span><span class="sm:hidden">Trend</span>
+                    </button>
+                    
+                    <button onclick="printFullReport()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded transition-all flex items-center gap-2 text-xs font-semibold border border-red-800 shadow-sm">
+                        <i class="fa-solid fa-file-pdf"></i> <span>บันทึก PDF</span>
+                    </button>
+                </div>
+
+                <!-- Filters -->
+                <div class="flex flex-wrap gap-1.5 items-center bg-slate-100 p-1.5 rounded border border-slate-300 w-full justify-end shadow-inner">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase px-1"><i class="fa-solid fa-filter"></i> ตัวกรอง:</span>
+                    
+                    <!-- Exact Date Filter -->
+                    <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
+                        <input type="date" id="date-filter" class="bg-transparent border-none outline-none text-xs font-bold text-primary cursor-pointer w-[105px]">
+                    </div>
+
+                    <!-- Month Filter -->
+                    <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
+                        <select id="month-filter" class="bg-transparent border-none outline-none text-xs font-bold text-primary cursor-pointer">
+                            <option value="all">ทุกเดือน</option>
+                            <option value="01">มกราคม</option>
+                            <option value="02">กุมภาพันธ์</option>
+                            <option value="03">มีนาคม</option>
+                            <option value="04">เมษายน</option>
+                            <option value="05">พฤษภาคม</option>
+                            <option value="06">มิถุนายน</option>
+                            <option value="07">กรกฎาคม</option>
+                            <option value="08">สิงหาคม</option>
+                            <option value="09">กันยายน</option>
+                            <option value="10">ตุลาคม</option>
+                            <option value="11">พฤศจิกายน</option>
+                            <option value="12">ธันวาคม</option>
+                        </select>
+                    </div>
+
+                    <!-- Year Filter -->
+                    <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
+                        <select id="year-filter" class="bg-transparent border-none outline-none text-xs font-bold text-primary cursor-pointer">
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+                    
+                    <button onclick="clearFilters()" class="text-[10px] font-bold text-slate-500 hover:text-primary bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded transition ml-0.5" title="ล้างตัวกรอง">
+                        <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Section 1: Compact Mold Information -->
+        <div id="section-1" class="bg-white rounded shadow-md mb-4 border border-slate-300">
+            <div class="section-header text-white px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-900 transition-colors" onclick="toggleSection('sec1-content', 'sec1-icon')">
+                <div class="flex items-center gap-2">
+                    <div class="bg-white text-primary rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs shadow-sm">1</div>
+                    <h2 class="font-semibold text-sm uppercase tracking-wide">ข้อมูลแม่พิมพ์ (Mold Information)</h2>
+                </div>
+                <i id="sec1-icon" class="fa-solid fa-chevron-up text-xs opacity-80"></i>
+            </div>
+            
+            <div class="collapsible-content" id="sec1-content">
+                <div>
+                    <div class="p-3 flex flex-col lg:flex-row items-center gap-4 bg-slate-50">
+                        
+                        <!-- Image -->
+                        <div class="shrink-0 flex flex-col items-center justify-center gap-1.5">
+                            <img id="current-mold-img" src="https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img" alt="Mold" class="w-20 h-20 md:w-24 md:h-24 object-contain rounded shadow-sm border border-slate-300 bg-white p-1 transition-all">
+                            <span id="current-mold-size" class="text-[10px] font-bold bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full shadow-inner border border-slate-300">Size 100</span>
+                        </div>
+                        
+                        <!-- Data Info Grid -->
+                        <div class="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                            
+                            <!-- Size Filter (New) -->
+                            <div class="flex flex-col bg-white border border-slate-200 p-2 rounded shadow-sm">
+                                <span class="text-[10px] font-semibold text-slate-500 uppercase">ขนาดแม่พิมพ์ (Size Filter)</span>
+                                <select id="size-filter" onchange="handleSizeFilterChange()" class="w-full bg-transparent border-b border-dashed border-slate-300 font-bold text-slate-800 text-sm focus:outline-none focus:border-primary pb-0.5 mt-1 cursor-pointer truncate">
+                                    <option value="all">ทั้งหมด (All Sizes)</option>
+                                    <option value="100">Size 100</option>
+                                    <option value="1000">Size 1000</option>
+                                </select>
+                            </div>
+
+                            <div class="flex flex-col bg-white border border-slate-200 p-2 rounded shadow-sm">
+                                <span class="text-[10px] font-semibold text-slate-500 uppercase">ชื่อแม่พิมพ์ / รหัส (Name/ID)</span>
+                                <select id="mold-name" onchange="handleMoldChange()" class="w-full bg-transparent border-b border-dashed border-slate-300 font-bold text-slate-800 text-sm focus:outline-none focus:border-primary pb-0.5 mt-1 cursor-pointer truncate">
+                                    <!-- Populated by JS -->
+                                </select>
+                            </div>
+
+                            <div class="flex flex-col bg-white border border-slate-200 p-2 rounded shadow-sm relative group">
+                                <span class="text-[10px] font-semibold text-slate-500 uppercase">รอบ PM เป้าหมาย (Target PM)</span>
+                                <div class="flex items-baseline gap-1 mt-1 border-b border-dashed border-slate-300 pb-0.5 editable-cell" onclick="editTargetPM()">
+                                    <span id="mold-target-display" class="w-full bg-transparent border-none font-bold text-primary text-base text-left p-0 m-0">130,000</span>
+                                    <span class="text-[10px] text-slate-400 font-medium">Shots</span>
+                                </div>
+                                <span class="absolute top-1 right-1 text-[8px] text-slate-400 no-print opacity-0 group-hover:opacity-100 transition"><i class="fa-solid fa-pen"></i></span>
+                            </div>
+
+                            <div class="flex flex-col bg-white border border-slate-200 p-2 rounded shadow-sm">
+                                <span class="text-[10px] font-semibold text-slate-500 uppercase">จำนวนช็อตปัจจุบัน (Current)</span>
+                                <div class="flex items-baseline gap-1 mt-1 border-b border-transparent pb-0.5">
+                                    <span id="mold-current" class="font-bold text-slate-800 text-lg leading-none">0</span>
+                                    <span class="text-[10px] text-slate-400 font-medium">Shots</span>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col border p-2 rounded shadow-sm transition-colors duration-300" id="remain-container">
+                                <span class="text-[10px] font-semibold text-slate-600 uppercase">จำนวนช็อตที่เหลือ (Remaining)</span>
+                                <div class="flex items-baseline gap-1 mt-1 border-b border-transparent pb-0.5">
+                                    <span id="mold-remaining" class="font-bold text-xl leading-none">0</span>
+                                    <span class="text-[10px] font-medium opacity-80">Shots</span>
+                                </div>
+                            </div>
+
+                        </div>
+                        
+                        <!-- Chart & Status -->
+                        <div class="shrink-0 flex items-center gap-5 lg:border-l border-slate-300 lg:pl-5 w-full lg:w-auto justify-center bg-white p-2 rounded shadow-sm border border-slate-200 lg:border-none lg:shadow-none lg:bg-transparent">
+                            
+                            <!-- Status Badge -->
+                            <div class="flex flex-col items-center justify-center min-w-[120px]">
+                                <span class="text-[10px] font-bold text-slate-500 mb-1 uppercase">สถานะการใช้งาน</span>
+                                <div id="status-badge" class="px-3 py-1.5 rounded font-bold text-white text-sm shadow-sm mb-1 w-full text-center border border-white/20 transition-all duration-300 tracking-wide">
+                                    -
+                                </div>
+                                <span id="status-desc" class="text-[10px] text-slate-500 font-medium whitespace-nowrap">(-)</span>
+                            </div>
+
+                            <!-- Circular Chart (Fixed Overlapping) -->
+                            <div class="relative w-24 h-24 flex items-center justify-center">
+                                <!-- SVG for Donut ring only -->
+                                <svg viewBox="0 0 36 36" class="circular-chart absolute inset-0 w-full h-full drop-shadow-sm">
+                                    <path class="circle-bg"
+                                    d="M18 2.0845
+                                        a 15.9155 15.9155 0 0 1 0 31.831
+                                        a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    />
+                                    <path class="circle" id="donut-path" stroke="#1e3a8a" stroke-dasharray="0, 100"
+                                    d="M18 2.0845
+                                        a 15.9155 15.9155 0 0 1 0 31.831
+                                        a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    />
+                                </svg>
+                                <!-- HTML Text overlay to prevent overlap and ensure crisp rendering -->
+                                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-0.5">
+                                    <span id="donut-text" class="text-base font-bold text-slate-800 leading-none mb-0.5">0%</span>
+                                    <span class="text-[9px] text-slate-500 font-semibold uppercase leading-none mt-1">ใช้ไปแล้ว</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 2: Daily Operation Log -->
+        <div id="section-2" class="bg-white rounded shadow-md mb-4 border border-slate-300">
+            <div class="section-header text-white px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-900 transition-colors" onclick="toggleSection('sec2-content', 'sec2-icon')">
+                <div class="flex items-center gap-2">
+                    <div class="bg-white text-primary rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs shadow-sm">2</div>
+                    <h2 class="font-semibold text-sm uppercase tracking-wide"><i class="fa-regular fa-calendar-days mr-1"></i> บันทึกการใช้งาน (Operation Log)</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Inside header actions -->
+                    <div class="flex gap-1.5 no-print" onclick="event.stopPropagation();">
+                        <button id="toggle-logs-btn" onclick="toggleShowAllLogs()" class="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">
+                            <i class="fa-solid fa-expand"></i> ดูทั้งหมด
+                        </button>
+                        <button onclick="addNewLogRow()" class="bg-blue-500 hover:bg-blue-400 text-white border border-blue-400 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-plus"></i> เพิ่มแถว
+                        </button>
+                    </div>
+                    <i id="sec2-icon" class="fa-solid fa-chevron-up text-xs opacity-80 border-l border-white/20 pl-3"></i>
+                </div>
+            </div>
+            
+            <div class="collapsible-content" id="sec2-content">
+                <div>
+                    <div class="overflow-x-auto bg-white scrollbar-thin pb-2">
+                        <table class="w-full text-center border-collapse text-xs sm:text-[13px] whitespace-nowrap min-w-[800px]">
+                            <thead class="bg-slate-200 text-slate-700 font-bold border-b-2 border-slate-300">
+                                <tr>
+                                    <th class="py-2 px-2 border-r border-slate-300 w-28">วันที่<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Date)</span></th>
+                                    <th class="py-2 px-2 border-r border-slate-300 w-16">กะ<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Shift)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300">เลขเริ่มต้น<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Start)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300 text-primary">เลขสิ้นสุด<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(End)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300 bg-slate-100">ผลิตได้<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Actual)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300 bg-blue-50 text-blue-800">ยอดสะสมรวม<br><span class="text-[9px] font-semibold text-blue-600/80 uppercase">(Accumulate)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300 bg-slate-100">Shot คงเหลือ<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Remain)</span></th>
+                                    <th class="py-2 px-3 border-r border-slate-300 w-28">ผู้บันทึก<br><span class="text-[9px] font-semibold text-slate-500 uppercase">(Oper)</span></th>
+                                    <th class="py-2 px-1 no-print w-10"><i class="fa-solid fa-gear"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="log-table-body" class="font-medium">
+                                <!-- Rows populated by JS -->
+                            </tbody>
+                        </table>
+                        
+                        <div id="log-footer-info" class="bg-slate-100 px-3 py-1.5 border-t border-slate-300 flex justify-between items-center text-[10px] text-slate-600 font-bold uppercase">
+                            <span id="showing-text"><i class="fa-solid fa-list-ol mr-1"></i> กำลังแสดง 15 รายการล่าสุด</span>
+                            <span class="text-blue-600"><i class="fa-solid fa-mouse-pointer mr-1"></i> คลิกที่ตารางเพื่อแก้ไขข้อมูล</span>
+                        </div>
+
+                        <div id="empty-log-state" class="hidden text-center py-8 text-slate-400 bg-slate-50 border-t border-slate-200">
+                            <i class="fa-regular fa-folder-open text-3xl mb-2 opacity-50"></i><br>
+                            <span class="text-sm font-semibold">ไม่มีข้อมูลการบันทึกตามตัวกรองที่เลือก</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 3: Alert Thresholds -->
+        <div id="section-3" class="bg-white rounded shadow-md mb-4 border border-slate-300">
+            <div class="section-header text-white px-4 py-1.5 flex items-center justify-between cursor-pointer hover:bg-blue-900 transition-colors" onclick="toggleSection('sec3-content', 'sec3-icon')">
+                <div class="flex items-center gap-2">
+                    <div class="bg-white text-primary rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs shadow-sm">3</div>
+                    <h2 class="font-semibold text-sm uppercase tracking-wide"><i class="fa-solid fa-triangle-exclamation mr-1"></i> เกณฑ์แจ้งเตือนรอบ PM (Alert Thresholds)</h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-white/80 uppercase font-semibold no-print hidden sm:inline"><i class="fa-solid fa-pen mr-1"></i>คลิกที่ตัวเลขเพื่อแก้ไข</span>
+                    <i id="sec3-icon" class="fa-solid fa-chevron-up text-xs opacity-80 border-l border-white/20 pl-2"></i>
+                </div>
+            </div>
+            
+            <div class="collapsible-content" id="sec3-content">
+                <div>
+                    <div class="p-3 bg-slate-50 border-t border-slate-200">
+                        <div class="flex flex-col xl:flex-row justify-between items-stretch gap-2">
+                            
+                            <!-- Safe -->
+                            <div class="flex-1 bg-white border border-slate-300 rounded flex flex-col overflow-hidden shadow-sm">
+                                <div class="bg-safe text-white text-[11px] py-1.5 px-2 font-bold text-center uppercase tracking-wider flex items-center justify-center gap-1">
+                                    <i class="fa-solid fa-circle-check"></i> โซนปลอดภัย (Safe)
+                                </div>
+                                <div class="p-2 text-center bg-green-50/50 flex-grow flex flex-col justify-center border-b border-slate-200">
+                                    <div class="font-bold text-green-700 cursor-pointer hover:bg-green-100 rounded px-1 transition text-sm sm:text-base border-b border-green-300 border-dashed inline-block mx-auto" onclick="editThreshold('safe')">
+                                        &lt; <span id="th-safe-val">100,000</span>
+                                    </div>
+                                </div>
+                                <div class="p-1.5 text-[10px] text-center text-slate-600 bg-white font-semibold">ปฏิบัติงานตามปกติ</div>
+                            </div>
+
+                            <div class="hidden xl:flex items-center justify-center text-slate-400 text-sm"><i class="fa-solid fa-chevron-right"></i></div>
+
+                            <!-- Warning -->
+                            <div class="flex-1 bg-white border border-slate-300 rounded flex flex-col overflow-hidden shadow-sm">
+                                <div class="bg-warning text-white text-[11px] py-1.5 px-2 font-bold text-center uppercase tracking-wider flex items-center justify-center gap-1">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> โซนเตือน (Warning)
+                                </div>
+                                <div class="p-2 text-center bg-amber-50/50 flex-grow flex flex-col justify-center border-b border-slate-200">
+                                    <div class="font-bold text-amber-700 text-sm sm:text-base">
+                                        <span id="th-safe-val-2">100,000</span> - <span class="cursor-pointer hover:bg-amber-100 rounded px-1 transition border-b border-amber-400 border-dashed" id="th-warn-val" onclick="editThreshold('warning')">119,999</span>
+                                    </div>
+                                </div>
+                                <div class="p-1.5 text-[10px] text-center text-slate-600 bg-white font-semibold">เตรียมอะไหล่สำรอง</div>
+                            </div>
+
+                            <div class="hidden xl:flex items-center justify-center text-slate-400 text-sm"><i class="fa-solid fa-chevron-right"></i></div>
+
+                            <!-- Critical -->
+                            <div class="flex-1 bg-white border border-slate-300 rounded flex flex-col overflow-hidden shadow-sm">
+                                <div class="bg-critical text-white text-[11px] py-1.5 px-2 font-bold text-center uppercase tracking-wider flex items-center justify-center gap-1">
+                                    <i class="fa-solid fa-circle-exclamation"></i> เสี่ยงสูง (Critical)
+                                </div>
+                                <div class="p-2 text-center bg-orange-50/50 flex-grow flex flex-col justify-center border-b border-slate-200">
+                                    <div class="font-bold text-orange-700 text-sm sm:text-base">
+                                        <span id="th-warn-val-2">120,000</span> - <span id="th-crit-val">129,999</span>
+                                    </div>
+                                </div>
+                                <div class="p-1.5 text-[10px] text-center text-slate-600 bg-white font-semibold">วางแผนซ่อมบำรุง / แจ้งฝ่ายผลิต</div>
+                            </div>
+
+                            <div class="hidden xl:flex items-center justify-center text-slate-400 text-sm"><i class="fa-solid fa-chevron-right"></i></div>
+
+                            <!-- Due -->
+                            <div class="flex-1 bg-white border border-slate-300 rounded flex flex-col overflow-hidden shadow-sm">
+                                <div class="bg-danger text-white text-[11px] py-1.5 px-2 font-bold text-center uppercase tracking-wider flex items-center justify-center gap-1 animate-pulse">
+                                    <i class="fa-solid fa-hand"></i> ถึงรอบ PM (Due)
+                                </div>
+                                <div class="p-2 text-center bg-red-50/50 flex-grow flex flex-col justify-center border-b border-slate-200">
+                                    <div class="font-bold text-red-700 text-sm sm:text-base">
+                                        &ge; <span id="th-pm-val">130,000</span>
+                                    </div>
+                                </div>
+                                <div class="p-1.5 text-[10px] text-center text-slate-600 bg-white font-semibold">หยุดแม่พิมพ์เพื่อทำ PM ครอบคลุม</div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: Maintenance Checklist -->
+        <div id="section-4" class="bg-white rounded shadow-md border border-slate-300 mb-6">
+            <div class="section-header text-white px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-900 transition-colors" onclick="toggleSection('sec4-content', 'sec4-icon')">
+                <div class="flex items-center gap-2">
+                    <div class="bg-white text-primary rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs shadow-sm">4</div>
+                    <h2 class="font-semibold text-sm uppercase tracking-wide"><i class="fa-solid fa-wrench mr-1"></i> รายการอะไหล่ที่เปลี่ยน / หมายเหตุ (Maintenance)</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="flex gap-1.5 no-print" onclick="event.stopPropagation();">
+                        <button onclick="openMaintenanceModal()" class="bg-blue-500 hover:bg-blue-400 text-white border border-blue-400 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-plus"></i> เพิ่มรายการ
+                        </button>
+                        <button onclick="printSection4()" class="bg-slate-700 hover:bg-slate-600 text-white border border-slate-600 px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-print"></i> ปริ้นส่วนนี้
+                        </button>
+                    </div>
+                    <i id="sec4-icon" class="fa-solid fa-chevron-up text-xs opacity-80 border-l border-white/20 pl-3"></i>
+                </div>
+            </div>
+            
+            <div class="collapsible-content" id="sec4-content">
+                <div>
+                    <div class="overflow-x-auto scrollbar-thin pb-2">
+                        <table class="w-full text-xs sm:text-[13px] text-left border-collapse whitespace-nowrap min-w-[600px]">
+                            <thead class="bg-slate-200 text-slate-700 font-bold border-b-2 border-slate-300">
+                                <tr>
+                                    <th class="py-2 px-3 w-16 text-center border-r border-slate-300">ลำดับ<br><span class="text-[9px] uppercase">(No.)</span></th>
+                                    <th class="py-2 px-4 border-r border-slate-300 w-1/3">รายการอะไหล่ที่เปลี่ยน<br><span class="text-[9px] uppercase">(Part Name)</span></th>
+                                    <th class="py-2 px-3 w-24 text-center border-r border-slate-300">จำนวน<br><span class="text-[9px] uppercase">(Qty)</span></th>
+                                    <th class="py-2 px-4 border-r border-slate-300 w-1/2">หมายเหตุ<br><span class="text-[9px] uppercase">(Notes)</span></th>
+                                    <th class="py-2 px-2 w-16 text-center no-print"><i class="fa-solid fa-gear"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="maintenance-table-body" class="font-medium bg-white">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modal: Trend Chart -->
+    <div id="trend-modal" class="fixed inset-0 bg-slate-900/90 z-50 hidden flex items-center justify-center backdrop-blur-sm px-2 py-4">
+        <div class="bg-white rounded shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden transform scale-95 opacity-0 transition-all duration-200 border-2 border-primary" id="trend-modal-content">
+            <div class="bg-primary text-white px-4 py-3 flex justify-between items-center shrink-0 shadow z-10">
+                <h3 class="font-bold text-base uppercase tracking-wide"><i class="fa-solid fa-chart-line mr-2"></i> กราฟแนวโน้มการใช้งาน (Accumulated Trend vs Target)</h3>
+                <button onclick="closeModal('trend-modal')" class="text-white hover:text-red-300 bg-white/10 hover:bg-white/20 rounded-full w-8 h-8 flex items-center justify-center transition border border-white/20"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-4 flex-grow relative bg-slate-50">
+                <div class="absolute inset-4 bg-white border border-slate-200 rounded p-4 shadow-inner flex flex-col">
+                    <h4 id="trend-chart-title" class="text-center font-bold text-slate-700 mb-2"></h4>
+                    <div class="flex-grow relative">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add New Mold -->
+    <div id="add-mold-modal" class="fixed inset-0 bg-slate-900/90 z-50 hidden flex items-center justify-center backdrop-blur-sm px-4 py-4">
+        <div class="bg-white rounded shadow-2xl w-full max-w-md flex flex-col overflow-hidden transform scale-95 opacity-0 transition-all duration-200 border-2 border-green-600" id="add-mold-modal-content">
+            <div class="bg-green-600 text-white px-4 py-3 flex justify-between items-center shrink-0 shadow z-10">
+                <h3 class="font-bold text-base uppercase tracking-wide"><i class="fa-solid fa-folder-plus mr-2"></i> เพิ่มข้อมูลแม่พิมพ์ (Add Mold)</h3>
+                <button onclick="closeModal('add-mold-modal')" class="text-white hover:text-red-200 bg-white/10 hover:bg-white/20 rounded-full w-8 h-8 flex items-center justify-center transition border border-white/20"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-5 flex-grow bg-slate-50 space-y-5 overflow-y-auto">
+                <!-- Name -->
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">ชื่อแม่พิมพ์ / รหัส (Mold Name / ID) <span class="text-red-500">*</span></label>
+                    <input type="text" id="new-mold-name" class="w-full border border-slate-300 rounded p-2 text-sm font-medium focus:border-green-500 focus:ring-1 focus:ring-green-500 focus:outline-none transition-all shadow-sm" placeholder="เช่น Preform Mold B-02">
+                </div>
+                
+                <!-- Size -->
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-500 uppercase mb-2">ขนาดแม่พิมพ์ (Mold Size) <span class="text-red-500">*</span></label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer bg-white border border-slate-200 px-3 py-1.5 rounded shadow-sm hover:bg-green-50 hover:border-green-300 transition-colors">
+                            <input type="radio" name="new-mold-size" value="100" checked class="accent-green-600 w-4 h-4 cursor-pointer"> Size 100
+                        </label>
+                        <label class="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer bg-white border border-slate-200 px-3 py-1.5 rounded shadow-sm hover:bg-green-50 hover:border-green-300 transition-colors">
+                            <input type="radio" name="new-mold-size" value="1000" class="accent-green-600 w-4 h-4 cursor-pointer"> Size 1000
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Image Upload -->
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">รูปภาพแม่พิมพ์ (Mold Image)</label>
+                    <div class="flex items-center gap-4 bg-white border border-slate-200 p-3 rounded shadow-sm">
+                        <div class="shrink-0 w-20 h-20 bg-slate-100 border border-slate-300 rounded flex items-center justify-center overflow-hidden shadow-inner p-1">
+                            <img id="new-mold-preview" src="https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img" class="w-full h-full object-contain">
+                        </div>
+                        <div class="flex-1">
+                            <input type="file" id="new-mold-image" accept="image/*" onchange="previewNewMoldImage(this)" class="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-green-100 file:text-green-700 hover:file:bg-green-200 cursor-pointer transition-colors">
+                            <p class="text-[10px] text-slate-400 mt-2 font-medium">รองรับไฟล์: .png, .jpg (สูงสุด 2MB)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+                <button onclick="closeModal('add-mold-modal')" class="px-4 py-1.5 border border-slate-300 rounded text-slate-600 text-xs font-bold hover:bg-slate-100 transition shadow-sm">ยกเลิก</button>
+                <button onclick="saveNewMold()" class="px-4 py-1.5 bg-green-600 border border-green-700 rounded text-white text-xs font-bold hover:bg-green-700 transition shadow-sm flex items-center gap-1.5">
+                    <i class="fa-solid fa-save"></i> บันทึกข้อมูล
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STREAMING_CHUNK:Initializing state with Data Isolated per Mold... ---
+        // ปรับโครงสร้างข้อมูล: แม่พิมพ์แต่ละตัวจะเก็บ Log, Maintenance, Target และ Threshold ของตัวเองแยกกัน
+        const defaultMaintenance = [
+            { id: 1, part: 'ซีลแม่พิมพ์ (Mold Seal)', qty: '-', note: '' },
+            { id: 2, part: 'ฮีตเตอร์ (Heater)', qty: '-', note: '' },
+            { id: 3, part: 'พิน (Pin)', qty: '-', note: '' },
+            { id: 4, part: 'คอนเนคเตอร์ (Connector)', qty: '-', note: '' },
+            { id: 5, part: 'สกรู / น็อต (Screw / Nut)', qty: '-', note: '' },
+            { id: 6, part: 'ชุดไกด์ (Guide Set)', qty: '-', note: '' },
+            { id: 7, part: 'อื่น ๆ (Other)', qty: '-', note: '' }
+        ];
+
+        const state = {
+            molds: [
+                { 
+                    id: 1, 
+                    name: 'Preform Mold A-01', 
+                    size: '100', 
+                    image: 'https://i.postimg.cc/7ZzM0ygN/288615-removebg-preview.png',
+                    targetPM: 130000,
+                    thresholds: { safe: 100000, warning: 120000 },
+                    logs: [
+                        { id: 1, date: '2026-09-01', shift: 'A', start: 95001, end: 95600, operator: 'สมชาย' },
+                        { id: 2, date: '2026-09-02', shift: 'B', start: 95601, end: 96230, operator: 'สมชาย' },
+                        { id: 3, date: '2026-09-03', shift: 'C', start: 96231, end: 96950, operator: 'อนุชา' },
+                        { id: 4, date: '2026-09-04', shift: 'A', start: 96951, end: 97580, operator: 'สมชาย' },
+                        { id: 5, date: '2026-09-05', shift: 'B', start: 97581, end: 98220, operator: 'อนุชา' },
+                        { id: 6, date: '2026-09-06', shift: 'C', start: 98221, end: 98450, operator: 'วิชัย' }
+                    ],
+                    maintenance: JSON.parse(JSON.stringify(defaultMaintenance))
+                },
+                { 
+                    id: 2, 
+                    name: 'Preform Mold B-02', 
+                    size: '1000', 
+                    image: 'https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img',
+                    targetPM: 250000,
+                    thresholds: { safe: 200000, warning: 230000 },
+                    logs: [],
+                    maintenance: JSON.parse(JSON.stringify(defaultMaintenance))
+                }
+            ],
+            currentMoldId: 1,
+            filters: {
+                year: '2026', 
+                month: 'all',
+                exactDate: '',
+                size: 'all' // ตัวกรองใหม่
+            },
+            isShowingAllLogs: false,
+            chartInstance: null
+        };
+
+        // Helper function: Get current active mold object
+        function getCurrentMold() {
+            return state.molds.find(m => m.id == state.currentMoldId);
+        }
+
+        // --- STREAMING_CHUNK:Loading and Initialization... ---
+        window.onload = function() {
+            setupYearFilter();
+            setupFilters();
+            simulateLoading();
+            updateDateTime();
+            setInterval(updateDateTime, 1000);
+        };
+
+        function simulateLoading() {
+            let progress = 0;
+            const bar = document.getElementById('loading-bar');
+            const text = document.getElementById('loading-text');
+            
+            const interval = setInterval(() => {
+                progress += Math.floor(Math.random() * 20) + 10;
+                if (progress > 100) progress = 100;
+                
+                bar.style.width = `${progress}%`;
+                text.innerText = `${progress}%`;
+
+                if (progress === 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        document.getElementById('loading-overlay').style.opacity = '0';
+                        setTimeout(() => {
+                            document.getElementById('loading-overlay').style.display = 'none';
+                            document.getElementById('main-content').style.display = 'block';
+                            initDashboard();
+                        }, 400);
+                    }, 200);
+                }
+            }, 70);
+        }
+
+        function initDashboard() {
+            document.getElementById('year-filter').value = state.filters.year;
+            document.getElementById('size-filter').value = state.filters.size;
+            renderMoldSelect();
+        }
+
+        // --- STREAMING_CHUNK:Mold Selection and Filtering... ---
+        function renderMoldSelect() {
+            const select = document.getElementById('mold-name');
+            select.innerHTML = '';
+            
+            // กรองตาม Size Filter
+            const filteredMolds = state.filters.size === 'all' ? state.molds : state.molds.filter(m => m.size === state.filters.size);
+            
+            filteredMolds.forEach(mold => {
+                const opt = document.createElement('option');
+                opt.value = mold.id;
+                opt.text = mold.name;
+                select.appendChild(opt);
+            });
+
+            // ปรับ currentMold ให้ถูกต้องถ้าถูกกรองหายไป
+            if (filteredMolds.length > 0) {
+                const stillExists = filteredMolds.find(m => m.id == state.currentMoldId);
+                if (!stillExists) state.currentMoldId = filteredMolds[0].id;
+                select.value = state.currentMoldId;
+                select.disabled = false;
+            } else {
+                state.currentMoldId = null;
+                const opt = document.createElement('option');
+                opt.text = "ไม่มีข้อมูลแม่พิมพ์ในขนาดนี้";
+                select.appendChild(opt);
+                select.disabled = true;
+            }
+
+            updateMoldDisplay();
+        }
+
+        function handleSizeFilterChange() {
+            state.filters.size = document.getElementById('size-filter').value;
+            renderMoldSelect();
+        }
+
+        function handleMoldChange() {
+            const select = document.getElementById('mold-name');
+            if(select.value) {
+                state.currentMoldId = parseInt(select.value);
+                updateMoldDisplay();
+            }
+        }
+
+        function updateMoldDisplay() {
+            const mold = getCurrentMold();
+            if (mold) {
+                document.getElementById('current-mold-img').src = mold.image || 'https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img';
+                document.getElementById('current-mold-size').innerText = 'Size ' + mold.size;
+                document.getElementById('mold-target-display').innerText = formatNumber(mold.targetPM);
+            } else {
+                document.getElementById('current-mold-img').src = 'https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img';
+                document.getElementById('current-mold-size').innerText = 'Size -';
+                document.getElementById('mold-target-display').innerText = '0';
+            }
+            // Trigger recalculation for the new mold
+            recalculateAll();
+            renderMaintenanceTable();
+        }
+
+        // --- STREAMING_CHUNK:Add Mold functionality... ---
+        function openAddMoldModal() {
+            document.getElementById('new-mold-name').value = '';
+            document.getElementById('new-mold-preview').src = 'https://placehold.co/100x100/e2e8f0/94a3b8?text=No+Img';
+            document.getElementById('new-mold-image').value = '';
+            document.querySelector('input[name="new-mold-size"][value="100"]').checked = true;
+            openModal('add-mold-modal');
+        }
+
+        function previewNewMoldImage(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('new-mold-preview').src = e.target.result;
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function saveNewMold() {
+            const name = document.getElementById('new-mold-name').value.trim();
+            if (!name) return Swal.fire({ title: 'ข้อมูลไม่ครบถ้วน', text: 'กรุณากรอกชื่อแม่พิมพ์/รหัส', icon: 'warning', confirmButtonColor: '#1e3a8a' });
+            
+            const size = document.querySelector('input[name="new-mold-size"]:checked').value;
+            let imgSrc = document.getElementById('new-mold-preview').src;
+            if (imgSrc.includes('placehold.co')) imgSrc = '';
+            
+            const newId = Date.now();
+            // สร้าง object แม่พิมพ์ใหม่ แยกข้อมูลอิสระ
+            state.molds.push({
+                id: newId, name: name, size: size, image: imgSrc,
+                targetPM: 130000, thresholds: { safe: 100000, warning: 120000 },
+                logs: [], maintenance: JSON.parse(JSON.stringify(defaultMaintenance))
+            });
+            
+            // รีเซ็ต Filter Size ให้เห็นทุกแม่พิมพ์
+            document.getElementById('size-filter').value = 'all';
+            state.filters.size = 'all';
+            
+            state.currentMoldId = newId;
+            renderMoldSelect();
+            closeModal('add-mold-modal');
+            
+            Swal.fire({ title: 'เพิ่มแม่พิมพ์สำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false, toast: true, position: 'top-end' });
+        }
+
+        // --- STREAMING_CHUNK:Filters and UI Core Calculation... ---
+        function updateDateTime() {
+            const now = new Date();
+            const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit', second:'2-digit' };
+            document.getElementById('current-datetime').innerText = now.toLocaleDateString('th-TH', options).toUpperCase();
+        }
+
+        function setupYearFilter() {
+            const select = document.getElementById('year-filter');
+            select.innerHTML = '';
+            for(let y = 2026; y <= 2035; y++) {
+                const option = document.createElement('option');
+                option.value = y.toString(); option.text = y.toString();
+                select.appendChild(option);
+            }
+        }
+        
+        function setupFilters() {
+            document.getElementById('year-filter').addEventListener('change', (e) => {
+                state.filters.year = e.target.value; state.filters.exactDate = '';
+                document.getElementById('date-filter').value = ''; recalculateAll();
+            });
+            document.getElementById('month-filter').addEventListener('change', (e) => {
+                state.filters.month = e.target.value; state.filters.exactDate = '';
+                document.getElementById('date-filter').value = ''; recalculateAll();
+            });
+            document.getElementById('date-filter').addEventListener('change', (e) => {
+                const val = e.target.value; state.filters.exactDate = val;
+                if(val) {
+                    const [y, m, d] = val.split('-');
+                    let yearSelect = document.getElementById('year-filter');
+                    let yearExists = Array.from(yearSelect.options).some(o => o.value === y);
+                    if(!yearExists) { const opt = document.createElement('option'); opt.value = y; opt.text = y; yearSelect.appendChild(opt); }
+                    yearSelect.value = y; document.getElementById('month-filter').value = m;
+                    state.filters.year = y; state.filters.month = m;
+                }
+                recalculateAll();
+            });
+        }
+        
+        function clearFilters() {
+            document.getElementById('year-filter').value = '2026';
+            document.getElementById('month-filter').value = 'all';
+            document.getElementById('date-filter').value = '';
+            document.getElementById('size-filter').value = 'all';
+            
+            state.filters.year = '2026'; state.filters.month = 'all'; state.filters.exactDate = ''; state.filters.size = 'all';
+            renderMoldSelect();
+        }
+
+        function toggleShowAllLogs() {
+             state.isShowingAllLogs = !state.isShowingAllLogs;
+             const btn = document.getElementById('toggle-logs-btn');
+             btn.innerHTML = state.isShowingAllLogs ? '<i class="fa-solid fa-compress"></i> ย่อตาราง' : '<i class="fa-solid fa-expand"></i> ดูทั้งหมด';
+             recalculateAll();
+        }
+
+        function recalculateAll() {
+            const mold = getCurrentMold();
+            const tbody = document.getElementById('log-table-body');
+            
+            if (!mold) {
+                tbody.innerHTML = '';
+                updateSection1Info(0, 130000, {safe:100000, warning:120000});
+                document.getElementById('empty-log-state').style.display = 'block';
+                return;
+            }
+
+            const target = mold.targetPM;
+            const thresholds = mold.thresholds;
+            
+            // ใช้ข้อมูล logs ของแม่พิมพ์นี้เท่านั้น
+            const sortedAllLogs = [...mold.logs].sort((a, b) => new Date(a.date) - new Date(b.date) || a.id - b.id);
+            
+            let maxAccumulated = 0;
+            if(sortedAllLogs.length > 0) maxAccumulated = sortedAllLogs[sortedAllLogs.length - 1].end;
+
+            let filteredLogs = sortedAllLogs;
+            if (state.filters.exactDate) {
+                 filteredLogs = sortedAllLogs.filter(l => l.date === state.filters.exactDate);
+            } else {
+                 if (state.filters.year) filteredLogs = filteredLogs.filter(l => l.date.startsWith(state.filters.year));
+                 if (state.filters.month !== 'all') filteredLogs = filteredLogs.filter(l => l.date.substring(5, 7) === state.filters.month);
+            }
+
+            let displayLogs = filteredLogs;
+            if (!state.isShowingAllLogs && filteredLogs.length > 15) {
+                displayLogs = filteredLogs.slice(-15);
+                document.getElementById('showing-text').innerHTML = `<i class="fa-solid fa-list-ol mr-1"></i> แสดง 15 ล่าสุด (จาก ${filteredLogs.length} รายการ)`;
+            } else {
+                document.getElementById('showing-text').innerHTML = `<i class="fa-solid fa-list-ol mr-1"></i> แสดงทั้งหมด ${filteredLogs.length} รายการ`;
+            }
+
+            tbody.innerHTML = '';
+
+            if (filteredLogs.length === 0) {
+                document.getElementById('empty-log-state').style.display = 'block';
+                document.getElementById('log-table-body').parentElement.style.display = 'none';
+                document.getElementById('log-footer-info').style.display = 'none';
+            } else {
+                document.getElementById('empty-log-state').style.display = 'none';
+                document.getElementById('log-table-body').parentElement.style.display = 'table';
+                document.getElementById('log-footer-info').style.display = 'flex';
+                
+                displayLogs.forEach((log, index) => {
+                    const actual = Math.abs(log.end - log.start);
+                    const accumulated = log.end;
+                    const remaining = target - accumulated;
+
+                    let rowClass = index % 2 === 0 ? "bg-white" : "bg-slate-50";
+                    rowClass += " border-b border-slate-200 hover:bg-blue-100 transition-colors";
+                    
+                    // เปลี่ยนสีตัวหนังสือตามเกณฑ์
+                    let alertTextClass = "text-blue-700"; 
+                    let alertRemainClass = "text-slate-700"; 
+                    
+                    if (accumulated >= thresholds.warning && accumulated < target) {
+                        alertTextClass = "text-orange-600 font-bold";
+                        alertRemainClass = "text-orange-600 font-bold";
+                    } else if (accumulated >= target) {
+                        alertTextClass = "text-red-600 font-bold";
+                        alertRemainClass = "text-red-600 font-bold";
+                        rowClass += " bg-red-50"; 
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.className = rowClass;
+                    tr.innerHTML = `
+                        <td class="py-2 px-2 editable-cell text-slate-700 border-r border-slate-200" onclick="inlineEdit(${log.id}, 'date', 'date')">${formatDate(log.date)}</td>
+                        <td class="py-2 px-2 editable-cell text-slate-700 border-r border-slate-200" onclick="inlineEditShift(${log.id})">${log.shift}</td>
+                        <td class="py-2 px-3 editable-cell text-slate-700 border-r border-slate-200 text-right" onclick="inlineEdit(${log.id}, 'start', 'number')">${formatNumber(log.start)}</td>
+                        <td class="py-2 px-3 editable-cell font-bold text-primary border-r border-slate-200 text-right" onclick="inlineEdit(${log.id}, 'end', 'number')">${formatNumber(log.end)}</td>
+                        <td class="py-2 px-3 font-bold text-slate-600 bg-slate-100/50 border-r border-slate-200 text-right">${formatNumber(actual)}</td>
+                        <td class="py-2 px-3 font-bold ${alertTextClass} bg-blue-50/50 border-r border-slate-200 text-right">${formatNumber(accumulated)}</td>
+                        <td class="py-2 px-3 font-semibold ${alertRemainClass} bg-slate-100/50 border-r border-slate-200 text-right">${formatNumber(remaining)}</td>
+                        <td class="py-2 px-3 editable-cell text-slate-600 border-r border-slate-200" onclick="inlineEdit(${log.id}, 'operator', 'text')">${log.operator}</td>
+                        <td class="py-2 px-1 no-print">
+                            <button onclick="deleteLog(${log.id})" class="text-slate-400 hover:text-red-500 rounded transition text-lg" title="ลบข้อมูล"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            updateSection1Info(maxAccumulated, target, thresholds);
+            updateThresholdUI(target, thresholds);
+            
+            if(!document.getElementById('trend-modal').classList.contains('hidden')) {
+                 renderChart();
+            }
+        }
+
+        // --- STREAMING_CHUNK:Inline Edits and Updates... ---
+        async function editTargetPM() {
+            const mold = getCurrentMold();
+            if(!mold) return;
+
+            const { value: newValue } = await Swal.fire({
+                title: `แก้ไขเป้าหมาย PM`,
+                input: 'number',
+                inputValue: mold.targetPM,
+                showCancelButton: true,
+                confirmButtonColor: '#1e3a8a',
+                confirmButtonText: 'บันทึก',
+                cancelButtonText: 'ยกเลิก'
+            });
+
+            if(newValue) {
+                mold.targetPM = parseInt(newValue);
+                document.getElementById('mold-target-display').innerText = formatNumber(mold.targetPM);
+                recalculateAll();
+            }
+        }
+
+        function updateSection1Info(currentShots, target, thresholds) {
+            let remaining = target - currentShots;
+            if (remaining < 0) remaining = 0;
+
+            document.getElementById('mold-current').innerText = formatNumber(currentShots);
+            const remainEl = document.getElementById('mold-remaining');
+            remainEl.innerText = formatNumber(remaining);
+            const remainContainer = document.getElementById('remain-container');
+
+            let percentage = 0;
+            if (target > 0) percentage = (currentShots / target) * 100;
+            
+            let displayPercentage = Math.min(percentage, 100); 
+            const donutPath = document.getElementById('donut-path');
+            donutPath.setAttribute('stroke-dasharray', `${displayPercentage}, 100`);
+            document.getElementById('donut-text').innerText = `${percentage.toFixed(1)}%`;
+
+            const badge = document.getElementById('status-badge');
+            const desc = document.getElementById('status-desc');
+            
+            remainContainer.className = "flex flex-col border p-2 rounded shadow-sm transition-colors duration-300";
+
+            if (currentShots < thresholds.safe) {
+                badge.className = "px-3 py-1.5 rounded font-bold text-white text-[12px] shadow-sm mb-1 w-full text-center border transition-all duration-300 tracking-wide bg-safe border-green-700";
+                badge.innerText = 'ปกติ (NORMAL)'; desc.innerText = '(ยังไม่ถึงรอบ PM)';
+                donutPath.setAttribute('stroke', '#16a34a');
+                remainContainer.classList.add('bg-white', 'border-slate-300');
+                remainEl.className = "font-bold text-2xl leading-none text-slate-800";
+            } else if (currentShots < thresholds.warning) {
+                badge.className = "px-3 py-1.5 rounded font-bold text-white text-[12px] shadow-sm mb-1 w-full text-center border transition-all duration-300 tracking-wide bg-warning border-amber-600";
+                badge.innerText = 'เตือน (WARNING)'; desc.innerText = '(เตรียมอะไหล่สำรอง)';
+                donutPath.setAttribute('stroke', '#f59e0b');
+                remainContainer.classList.add('bg-amber-50', 'border-amber-400');
+                remainEl.className = "font-bold text-2xl leading-none text-amber-600";
+            } else if (currentShots < target) {
+                badge.className = "px-3 py-1.5 rounded font-bold text-white text-[12px] shadow-sm mb-1 w-full text-center border transition-all duration-300 tracking-wide bg-critical border-orange-700";
+                badge.innerText = 'เสี่ยง (CRITICAL)'; desc.innerText = '(วางแผนซ่อมบำรุง)';
+                donutPath.setAttribute('stroke', '#ea580c');
+                remainContainer.classList.add('bg-orange-50', 'border-orange-400');
+                remainEl.className = "font-bold text-2xl leading-none text-orange-600";
+            } else {
+                badge.className = "px-3 py-1.5 rounded font-bold text-white text-[12px] shadow-sm mb-1 w-full text-center border transition-all duration-300 tracking-wide bg-danger border-red-800 animate-pulse";
+                badge.innerText = 'ถึงรอบ (PM DUE)'; desc.innerText = '(ทำ PM ครอบคลุม)';
+                donutPath.setAttribute('stroke', '#dc2626');
+                remainContainer.classList.add('bg-red-50', 'border-red-500');
+                remainEl.className = "font-bold text-2xl leading-none text-red-600 animate-pulse";
+            }
+        }
+
+        async function inlineEdit(logId, field, inputType) {
+            const mold = getCurrentMold();
+            if(!mold) return;
+            const logIndex = mold.logs.findIndex(l => l.id === logId);
+            if (logIndex === -1) return;
+            const log = mold.logs[logIndex];
+            
+            let displayTitle = '';
+            if(field === 'start') displayTitle = 'เลขเริ่มต้น (Start)';
+            else if(field === 'end') displayTitle = 'เลขสิ้นสุด (End)';
+            else if(field === 'date') displayTitle = 'วันที่ (Date)';
+            else if(field === 'operator') displayTitle = 'ผู้บันทึก (Operator)';
+
+            const { value: newValue } = await Swal.fire({
+                title: `แก้ไข: ${displayTitle}`,
+                input: inputType,
+                inputValue: log[field],
+                showCancelButton: true,
+                confirmButtonColor: '#1e3a8a',
+                confirmButtonText: 'บันทึก',
+                cancelButtonText: 'ยกเลิก',
+                inputValidator: (value) => { if (!value && inputType !== 'text') return 'กรุณากรอกข้อมูลให้ครบ'; }
+            });
+
+            if (newValue !== undefined) {
+                if (inputType === 'number') mold.logs[logIndex][field] = parseInt(newValue);
+                else mold.logs[logIndex][field] = newValue;
+                recalculateAll();
+            }
+        }
+        
+        async function inlineEditShift(logId) {
+             const mold = getCurrentMold();
+             if(!mold) return;
+             const logIndex = mold.logs.findIndex(l => l.id === logId);
+             if (logIndex === -1) return;
+             
+             const { value: newShift } = await Swal.fire({
+                title: 'เลือกกะ (Shift)',
+                input: 'select',
+                inputOptions: { 'A': 'กะ A', 'B': 'กะ B', 'C': 'กะ C' },
+                inputValue: mold.logs[logIndex].shift,
+                showCancelButton: true, confirmButtonColor: '#1e3a8a', confirmButtonText: 'บันทึก'
+            });
+            if (newShift) { mold.logs[logIndex].shift = newShift; recalculateAll(); }
+        }
+
+        function addNewLogRow() {
+            const mold = getCurrentMold();
+            if(!mold) return Swal.fire('Error', 'กรุณาเลือกแม่พิมพ์ก่อน', 'error');
+
+            let lastEnd = 0;
+            let lastDate = new Date().toISOString().split('T')[0];
+            let nextShift = 'A';
+            let lastOperator = '...';
+            
+            if(mold.logs.length > 0) {
+                const sorted = [...mold.logs].sort((a,b) => {
+                    if (a.date !== b.date) return new Date(b.date) - new Date(a.date);
+                    return b.id - a.id;
+                });
+                const lastLog = sorted[0]; 
+                lastEnd = lastLog.end; lastDate = lastLog.date; lastOperator = lastLog.operator;
+                
+                if (lastLog.shift === 'A') nextShift = 'B';
+                else if (lastLog.shift === 'B') nextShift = 'C';
+                else if (lastLog.shift === 'C') {
+                    nextShift = 'A';
+                    let d = new Date(lastDate); d.setDate(d.getDate() + 1);
+                    lastDate = d.toISOString().split('T')[0];
+                }
+            }
+
+            const newLog = { id: Date.now(), date: lastDate, shift: nextShift, start: lastEnd, end: lastEnd, operator: lastOperator };
+            mold.logs.push(newLog);
+            
+            const [y, m] = newLog.date.split('-');
+            let yearExists = Array.from(document.getElementById('year-filter').options).some(o => o.value === y);
+            if(!yearExists) {
+                const opt = document.createElement('option'); opt.value = y; opt.text = y;
+                document.getElementById('year-filter').appendChild(opt);
+            }
+            document.getElementById('year-filter').value = y; document.getElementById('month-filter').value = m;
+            state.filters.year = y; state.filters.month = m; state.filters.exactDate = '';
+            
+            recalculateAll();
+            Swal.fire({ title: 'เพิ่มแถวใหม่สำเร็จ', text: 'คลิกที่ตารางเพื่อแก้ไขข้อมูล', icon: 'success', timer: 1500, showConfirmButton: false, toast: true, position: 'top-end' });
+        }
+
+        function deleteLog(id) {
+            const mold = getCurrentMold();
+            if(!mold) return;
+            Swal.fire({
+                title: 'ยืนยันลบข้อมูล?', text: "ไม่สามารถกู้คืนได้", icon: 'warning',
+                showCancelButton: true, confirmButtonColor: '#dc2626', cancelButtonColor: '#94a3b8',
+                confirmButtonText: 'ลบ', cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    mold.logs = mold.logs.filter(l => l.id !== id);
+                    recalculateAll();
+                }
+            });
+        }
+
+        // --- STREAMING_CHUNK:Thresholds and Maintenance UI... ---
+        function updateThresholdUI(target, thresholds) {
+            document.getElementById('th-safe-val').innerText = formatNumber(thresholds.safe);
+            document.getElementById('th-safe-val-2').innerText = formatNumber(thresholds.safe);
+            document.getElementById('th-warn-val').innerText = formatNumber(thresholds.warning - 1);
+            document.getElementById('th-warn-val-2').innerText = formatNumber(thresholds.warning);
+            document.getElementById('th-crit-val').innerText = formatNumber(target - 1);
+            document.getElementById('th-pm-val').innerText = formatNumber(target);
+        }
+
+        function editThreshold(type) {
+            const mold = getCurrentMold();
+            if(!mold) return;
+            
+            let title = ''; let currentVal = 0;
+            if(type === 'safe') { title = 'แก้โซนปลอดภัย (สิ้นสุดที่ <)'; currentVal = mold.thresholds.safe; }
+            if(type === 'warning') { title = 'แก้โซนเตือน (สิ้นสุดที่)'; currentVal = mold.thresholds.warning - 1; }
+
+            Swal.fire({
+                title: title, input: 'number', inputValue: currentVal,
+                showCancelButton: true, confirmButtonColor: '#1e3a8a', confirmButtonText: 'บันทึก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const val = parseInt(result.value);
+                    if(type === 'safe') {
+                        if(val >= mold.thresholds.warning) return Swal.fire('Error', 'ต้องน้อยกว่าเกณฑ์เตือน', 'error');
+                        mold.thresholds.safe = val;
+                    }
+                    if(type === 'warning') {
+                        if(val <= mold.thresholds.safe || val >= mold.targetPM) return Swal.fire('Error', 'ต้องอยู่ระหว่าง ปลอดภัย และ เป้าหมาย', 'error');
+                        mold.thresholds.warning = val + 1; 
+                    }
+                    recalculateAll();
+                }
+            });
+        }
+
+        function renderMaintenanceTable() {
+            const mold = getCurrentMold();
+            const tbody = document.getElementById('maintenance-table-body');
+            tbody.innerHTML = '';
+            if(!mold) return;
+
+            mold.maintenance.forEach((item, index) => {
+                const tr = document.createElement('tr');
+                tr.className = index % 2 === 0 ? "bg-white border-b border-slate-200" : "bg-slate-50 border-b border-slate-200";
+                tr.innerHTML = `
+                    <td class="py-2 px-3 border-r border-slate-300 text-center font-semibold text-slate-500">${index + 1}</td>
+                    <td class="py-2 px-4 border-r border-slate-300 text-slate-800 font-bold">${item.part}</td>
+                    <td class="py-2 px-3 border-r border-slate-300 text-center text-slate-800 font-bold">${item.qty}</td>
+                    <td class="py-2 px-4 border-r border-slate-300 text-slate-600">${item.note}</td>
+                    <td class="py-2 px-2 text-center no-print text-base">
+                        <button onclick="editMaintenance(${item.id})" class="text-blue-500 hover:text-blue-700 mr-3 transition"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteMaintenance(${item.id})" class="text-slate-400 hover:text-red-500 transition"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        async function openMaintenanceModal() {
+            const mold = getCurrentMold();
+            if(!mold) return;
+            const { value: formValues } = await Swal.fire({
+                title: 'เพิ่มอะไหล่',
+                html: `<div class="text-left space-y-3 mt-2">
+                        <div><label class="text-xs font-bold text-slate-600">ชื่ออะไหล่</label><input id="swal-input1" class="w-full border border-slate-300 rounded p-2 text-sm" placeholder="เช่น ฮีตเตอร์"></div>
+                        <div><label class="text-xs font-bold text-slate-600">จำนวน</label><input id="swal-input2" class="w-full border border-slate-300 rounded p-2 text-sm" value="1"></div>
+                        <div><label class="text-xs font-bold text-slate-600">หมายเหตุ</label><input id="swal-input3" class="w-full border border-slate-300 rounded p-2 text-sm" placeholder="..."></div>
+                    </div>`,
+                focusConfirm: false, showCancelButton: true, confirmButtonColor: '#1e3a8a', confirmButtonText: 'บันทึก', cancelButtonText: 'ยกเลิก',
+                preConfirm: () => [document.getElementById('swal-input1').value, document.getElementById('swal-input2').value, document.getElementById('swal-input3').value]
+            });
+            if (formValues && formValues[0]) {
+                mold.maintenance.push({ id: Date.now(), part: formValues[0], qty: formValues[1] || '-', note: formValues[2] });
+                renderMaintenanceTable();
+            }
+        }
+
+        async function editMaintenance(id) { 
+             const mold = getCurrentMold();
+             if(!mold) return;
+             const itemIndex = mold.maintenance.findIndex(i => i.id === id);
+             if(itemIndex === -1) return;
+             const item = mold.maintenance[itemIndex];
+             const { value: formValues } = await Swal.fire({
+                title: 'แก้ไขอะไหล่',
+                html: `<div class="text-left space-y-3 mt-2">
+                        <div><label class="text-xs font-bold text-slate-600">ชื่อ</label><input id="swal-input1" class="w-full border border-slate-300 rounded p-2 text-sm" value="${item.part}"></div>
+                        <div><label class="text-xs font-bold text-slate-600">จำนวน</label><input id="swal-input2" class="w-full border border-slate-300 rounded p-2 text-sm" value="${item.qty}"></div>
+                        <div><label class="text-xs font-bold text-slate-600">หมายเหตุ</label><input id="swal-input3" class="w-full border border-slate-300 rounded p-2 text-sm" value="${item.note}"></div>
+                    </div>`,
+                showCancelButton: true, confirmButtonColor: '#1e3a8a', confirmButtonText: 'บันทึก', cancelButtonText: 'ยกเลิก',
+                preConfirm: () => [document.getElementById('swal-input1').value, document.getElementById('swal-input2').value, document.getElementById('swal-input3').value]
+            });
+            if (formValues) {
+                mold.maintenance[itemIndex] = { ...item, part: formValues[0], qty: formValues[1], note: formValues[2] };
+                renderMaintenanceTable();
+            }
+        }
+        
+        function deleteMaintenance(id) {
+             const mold = getCurrentMold();
+             if(!mold) return;
+             Swal.fire({
+                title: 'ลบรายการนี้?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc2626', confirmButtonText: 'ลบ', cancelButtonText: 'ยกเลิก'
+            }).then((res) => {
+                if (res.isConfirmed) { mold.maintenance = mold.maintenance.filter(i => i.id !== id); renderMaintenanceTable(); }
+            });
+        }
+
+        // --- STREAMING_CHUNK:Collapsible, Chart rendering and PDF logic... ---
+        function toggleSection(contentId, iconId) {
+            const content = document.getElementById(contentId);
+            const icon = document.getElementById(iconId);
+            if (content.classList.contains('collapsed')) {
+                content.classList.remove('collapsed');
+                icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+            } else {
+                content.classList.add('collapsed');
+                icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+            }
+        }
+
+        function openModal(id) {
+            const modal = document.getElementById(id);
+            const content = document.getElementById(`${id}-content`);
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                content.classList.remove('scale-95', 'opacity-0');
+                content.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        }
+
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            const content = document.getElementById(`${id}-content`);
+            content.classList.remove('scale-100', 'opacity-100');
+            content.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => { modal.classList.add('hidden'); }, 200);
+        }
+
+        function openTrendModal() {
+            const mold = getCurrentMold();
+            if(!mold) return Swal.fire('Info', 'ไม่มีข้อมูลแม่พิมพ์', 'info');
+            openModal('trend-modal');
+            document.getElementById('trend-chart-title').innerText = `แนวโน้มการผลิตแม่พิมพ์: ${mold.name}`;
+            setTimeout(renderChart, 250); 
+        }
+
+        function renderChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            if (state.chartInstance) state.chartInstance.destroy();
+            const mold = getCurrentMold();
+            if(!mold) return;
+
+            const sortedLogs = [...mold.logs].sort((a,b) => new Date(a.date) - new Date(b.date));
+            const labels = sortedLogs.map(l => formatDate(l.date) + (l.shift ? `(${l.shift})` : ''));
+            const dataAccumulated = sortedLogs.map(l => l.end);
+            const targetData = new Array(labels.length).fill(mold.targetPM);
+
+            state.chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'ยอดสะสม (Accumulated)',
+                            data: dataAccumulated,
+                            borderColor: '#3b82f6', // Bright blue
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: '#1e3a8a',
+                            pointRadius: 4, pointHoverRadius: 7,
+                            fill: true, tension: 0.4 // Smooth curve
+                        },
+                        {
+                            label: 'เป้าหมาย PM (Target)',
+                            data: targetData,
+                            borderColor: '#dc2626',
+                            borderWidth: 2, borderDash: [5, 5],
+                            pointRadius: 0, fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { font: { family: 'Kanit', weight: 'bold', size: 13 } } },
+                        tooltip: { titleFont: { family: 'Kanit', size: 14 }, bodyFont: { family: 'Kanit', size: 13 }, padding: 10 }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true, suggestedMax: mold.targetPM * 1.05,
+                            grid: { color: '#e2e8f0', drawBorder: false },
+                            ticks: { font: { family: 'Kanit' }, callback: val => formatNumber(val), padding: 10 }
+                        },
+                        x: { 
+                            grid: { display: false },
+                            ticks: { font: { family: 'Kanit' }, maxRotation: 45, minRotation: 45 } 
+                        }
+                    }
+                }
+            });
+        }
+
+        function printFullReport() {
+            Swal.fire({ title: 'กำลังเตรียม PDF...', text: 'กรุณารอสักครู่ (อาจใช้เวลาในการประมวลผลฟอนต์)', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            
+            // Expand all sections before print
+            document.getElementById('sec1-content').classList.remove('collapsed');
+            document.getElementById('sec2-content').classList.remove('collapsed');
+            document.getElementById('sec3-content').classList.remove('collapsed');
+            document.getElementById('sec4-content').classList.remove('collapsed');
+            document.getElementById('sec1-icon').classList.replace('fa-chevron-down', 'fa-chevron-up');
+            document.getElementById('sec2-icon').classList.replace('fa-chevron-down', 'fa-chevron-up');
+            document.getElementById('sec3-icon').classList.replace('fa-chevron-down', 'fa-chevron-up');
+            document.getElementById('sec4-icon').classList.replace('fa-chevron-down', 'fa-chevron-up');
+            
+            // Add fix for Thai font rendering in PDF
+            document.body.classList.add('pdf-export-mode');
+
+            setTimeout(() => {
+                const element = document.getElementById('main-content');
+                const dateStr = document.getElementById('date-filter').value || state.filters.month;
+                const moldName = getCurrentMold() ? getCurrentMold().name.substring(0, 10) : 'All';
+                
+                const opt = {
+                    margin:       [8, 5, 8, 5],
+                    filename:     `Mold_Tracking_${moldName}_${dateStr}.pdf`,
+                    image:        { type: 'jpeg', quality: 1.0 },
+                    html2canvas:  { scale: 2, useCORS: true, letterRendering: true, ignoreElements: el => el.classList.contains('no-print') },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                html2pdf().set(opt).from(element).save().then(() => {
+                    document.body.classList.remove('pdf-export-mode');
+                    Swal.close();
+                });
+            }, 500); // Wait longer for DOM updates and fonts
+        }
+
+        function printSection4() {
+             Swal.fire({ title: 'กำลังเตรียม PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+             document.getElementById('sec4-content').classList.remove('collapsed');
+             document.getElementById('sec4-icon').classList.replace('fa-chevron-down', 'fa-chevron-up');
+             document.body.classList.add('pdf-export-mode');
+
+             setTimeout(() => {
+                const element = document.getElementById('section-4');
+                const moldName = getCurrentMold() ? getCurrentMold().name.substring(0, 10) : 'All';
+                const opt = {
+                    margin:       10, filename: `Maintenance_Checklist_${moldName}.pdf`,
+                    image:        { type: 'jpeg', quality: 1.0 },
+                    html2canvas:  { scale: 2, useCORS: true, letterRendering: true, ignoreElements: el => el.classList.contains('no-print') },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+                html2pdf().set(opt).from(element).save().then(() => {
+                    document.body.classList.remove('pdf-export-mode');
+                    Swal.close();
+                });
+             }, 500);
+        }
+
+        // Format Utilities
+        function formatNumber(num) { 
+            if(num === null || num === undefined || isNaN(num)) return '0';
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); 
+        }
+        function formatDate(dateString) {
+            if(!dateString) return '';
+            const [year, month, day] = dateString.split('-');
+            return `${day}/${month}/${year}`;
+        }
+    </script>
+</body>
+</html>
